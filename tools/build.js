@@ -65,4 +65,6 @@ html = html.replace(/<script src="core\.js"><\/script>\s*<script src="levels\.js
 html = html.replace(/\n\s*\n/g, '\n');
 fs.writeFileSync(path.join(ROOT, 'index.html'), html);
 fs.writeFileSync(path.join(ROOT, '.nojekyll'), '');
+fs.mkdirSync(path.join(ROOT, 'fonts'), { recursive: true });
+for (const f of fs.readdirSync(path.join(SRC, 'fonts'))) fs.copyFileSync(path.join(SRC, 'fonts', f), path.join(ROOT, 'fonts', f));
 console.log('빌드 완료: index.html, game.js (' + (out.length / 1024).toFixed(1) + ' KB)');
