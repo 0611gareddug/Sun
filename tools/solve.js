@@ -31,7 +31,7 @@ function solve(level, opts = {}) {
   const sr = opts.target === 'both' ? shardRect(level) : null;
   const need = (kr ? 1 : 0) | (sr ? 2 : 0);
   const TM = tMax(level);
-  const maxStates = opts.maxStates || 1500000;
+  const maxStates = opts.maxStates || 4000000;
 
   function sim(st, plan) {
     // plan: function(step, p) -> {dir, jp, jh, adv}
