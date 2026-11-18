@@ -5,7 +5,7 @@
   const CHAPTERS = ['', '새벽 정원', '시계탑 뜰', '해바라기 온실', '풍차 언덕', '구름 고원', '달밤의 시계탑'];
   const CH_SUB = ['', '그림자 걷기와 태양 끌기', '시간대를 고르는 법', '시간에 반응하는 장치들', '돌아가는 그림자', '구름과 바람', '해가 진 뒤, 반대편의 달'];
   const $ = (id) => document.getElementById(id);
-  const cv = $('game'), ctx = cv.getContext('2d', { alpha: false });
+  const cv = $('game'), ctx = cv.getContext('2d', { alpha: false, desynchronized: true });
   const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || matchMedia('(pointer:coarse)').matches;
   const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   const lerp = (a, b, k) => a + (b - a) * k;
@@ -82,19 +82,19 @@
 
   /* ═════════════ 화면 / 픽셀 버퍼 ═════════════ */
   let W = 0, H = 0, DPR = 1, K = 2, lw = 320, lh = 180, viewW = 0, viewH = 0;
-  const lo = document.createElement('canvas'), lc = lo.getContext('2d', { willReadFrequently: true });
-  let img = null, buf = null, mask = null;
+  const lo = cv, lc = ctx; // 저해상도 캔버스를 CSS로 정수배 확대 (image-rendering: pixelated)
+  let img = null, buf = null, u32 = null, mask = null, bufMode = false;
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 3);
     W = window.innerWidth; H = window.innerHeight;
     const target = (H < 520 ? 640 : 800) / PXW;
     K = Math.max(1, Math.round(H * DPR / target));
     lh = Math.ceil(H * DPR / K); lw = Math.ceil(W * DPR / K);
-    lo.width = lw; lo.height = lh;
-    cv.width = lw * K; cv.height = lh * K;
+    cv.width = lw; cv.height = lh;
     cv.style.width = (lw * K / DPR) + 'px'; cv.style.height = (lh * K / DPR) + 'px';
     viewH = lh * PXW; viewW = lw * PXW;
     mask = new Uint8Array(lw * lh);
+    img = lc.createImageData(lw, lh); buf = img.data; u32 = new Uint32Array(buf.buffer);
     const tcs = clamp(Math.min(W, H) * 0.17, 60, 88);
     document.documentElement.style.setProperty('--tcs', tcs + 'px');
     for (const h of hintEls) h.w = 0;
@@ -140,7 +140,7 @@
   let parts = [], snaps = [], snapTick = 0, timeDir = 0, timeDirShow = 0;
   let lastHourMark = -1, duskPlayed = false, camInit = false, lookX = 0, camX = 0, camY = 0, flash = 0;
   let runAnim = 0, blinkT = 0;
-  let hintEls = [];
+  let hintEls = [], dynLevel = false, worldT = -1;
   const hills = [];
 
   function loadLevel(i) {
@@ -150,7 +150,8 @@
     hasKey = !level.key; gotShard = false; won = false; deadT = 0; winT = 0; endShown = false;
     parts = []; snaps = []; snapTick = 0; duskPlayed = t >= 1; camInit = false; timeDir = 0; timeDirShow = 0;
     lastHourMark = Math.floor(t * 48);
-    Wd = SC.world(level, t, rt); Wprev = null;
+    dynLevel = level.casters.some(c => c.mill || c.sway || c.slide) || !!(level.clouds && level.clouds.length);
+    Wd = SC.world(level, t, rt); Wprev = null; worldT = t;
     genHills(i);
     $('lvCh').textContent = level.ch + '장 · ' + CHAPTERS[level.ch];
     $('lvName').textContent = level.id + ' ' + level.name;
@@ -264,7 +265,7 @@
     player = Object.assign({}, s.p); player.dead = null;
     t = tTarget = s.t; rt = s.rt; used = s.used; hasKey = s.hasKey; gotShard = s.gotShard;
     snaps = snaps.slice(0, idx);
-    deadT = 0; endShown = false; Wprev = null; Wd = SC.world(level, t, rt); parts = [];
+    deadT = 0; endShown = false; Wprev = null; Wd = SC.world(level, t, rt); worldT = t; parts = [];
     updKeyInd(); hideAll(); mode = 'play'; showHUD(true); Snd.rewind(); flash = 0.25; timeDirShow = -0.6;
   }
 
@@ -287,7 +288,8 @@
       }
     }
     Wprev = Wd;
-    Wd = SC.world(level, t, rt);
+    // 정적 스테이지는 시간이 그대로면 월드 재계산 생략
+    if (dynLevel || t !== worldT) { Wd = SC.world(level, t, rt); worldT = t; }
     if (!player.dead && !won) {
       const dir = (input.dirR || input.tR ? 1 : 0) - (input.dirL || input.tL ? 1 : 0);
       const ev = [], vyB = player.vy;
@@ -395,13 +397,47 @@
     camX = lerp(camX, cx, 1 - Math.pow(0.004, dt));
     camY = lerp(camY, ty, 1 - Math.pow(0.01, dt));
   }
-  function rect(x, y, w, h, col) { lc.fillStyle = col; lc.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
-  function disc(cx, cy, r, col) { lc.fillStyle = col; cx = Math.round(cx); cy = Math.round(cy); for (let dy = -r; dy <= r; dy++) { const w = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8)); lc.fillRect(cx - w, cy + dy, w * 2 + 1, 1); } }
+  // 색 문자열 → {r,g,b,a,c32} (캐시)
+  const colCache = new Map();
+  function pcol(str) {
+    let c = colCache.get(str);
+    if (c) return c;
+    let r, g, b, a = 1;
+    if (str[0] === '#') { r = parseInt(str.substr(1, 2), 16); g = parseInt(str.substr(3, 2), 16); b = parseInt(str.substr(5, 2), 16); if (str.length > 7) a = parseInt(str.substr(7, 2), 16) / 255; }
+    else { const m = str.match(/[\d.]+/g); r = +m[0]; g = +m[1]; b = +m[2]; a = m.length > 3 ? +m[3] : 1; }
+    c = { r, g, b, a, c32: ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0 };
+    if (colCache.size > 600) colCache.clear();
+    colCache.set(str, c); return c;
+  }
+  function bSpan(y, x0, x1, c) {
+    if (y < 0 || y >= lh) return;
+    if (x0 < 0) x0 = 0; if (x1 > lw) x1 = lw; if (x0 >= x1) return;
+    const row = y * lw;
+    if (c.a >= 0.999) { u32.fill(c.c32, row + x0, row + x1); return; }
+    const a = c.a;
+    for (let o = (row + x0) * 4, e = (row + x1) * 4; o < e; o += 4) { buf[o] += (c.r - buf[o]) * a; buf[o + 1] += (c.g - buf[o + 1]) * a; buf[o + 2] += (c.b - buf[o + 2]) * a; }
+  }
+  function rect(x, y, w, h, col) {
+    x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
+    if (!bufMode) { lc.fillStyle = col; lc.fillRect(x, y, w, h); return; }
+    const c = pcol(col), y1 = Math.min(lh, y + h);
+    for (let yy = Math.max(0, y); yy < y1; yy++) bSpan(yy, x, x + w, c);
+  }
+  function disc(cx, cy, r, col) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    const c = bufMode ? pcol(col) : null;
+    if (!bufMode) lc.fillStyle = col;
+    for (let dy = -r; dy <= r; dy++) {
+      const w = Math.floor(Math.sqrt(r * r - dy * dy + r * 0.8));
+      if (bufMode) bSpan(cy + dy, cx - w, cx + w + 1, c); else lc.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    }
+  }
 
   function draw(now) {
     camPX = Math.round(camX / PXW); camPY = Math.round(camY / PXW);
     const pal = palette(t), L = Wd.L, ls = L ? L.s : 0;
     const hy = horizonPx();
+    bufMode = true;
     // 1) 하늘 띠
     const bands = 16;
     for (let i = 0; i < bands; i++) rect(0, Math.floor(hy * i / bands), lw, Math.ceil(hy / bands) + 1, hex(mixc(pal.top, pal.bot, i / (bands - 1))));
@@ -417,15 +453,14 @@
     const floorTop = mixc(mixc(pal.lc, [255, 255, 255], 0.45), pal.bot, 1 - lit);
     for (let i = 0; i < 6; i++) rect(0, gy + i * 3, lw, 3, hex(mixc(floorTop, mixc(pal.lc, pal.top, 0.5), i / 7)));
     rect(0, gy + 18, lw, lh - gy, hex(mixc(pal.lc, pal.top, 0.62)));
-    lc.fillStyle = hex(mixc(floorTop, [255, 255, 255], 0.6));
-    for (let x = 0; x < lw; x += 6) { const off = Math.floor((now / 90 + x * 0.5) % 6); if (off < 3) lc.fillRect(x + off, gy + 1, 2, 1); }
-    for (let i = 0; i < 18; i++) { const px = ((i * 53.7 + now * 0.012 * ((i % 3) + 1)) % lw) | 0, py = gy + 4 + ((i * 7.3) % 14 | 0); lc.fillRect(px, py - (Math.floor(now / 300 + i) % 3), 1, 1); }
+    const wave = hex(mixc(floorTop, [255, 255, 255], 0.6));
+    for (let x = 0; x < lw; x += 6) { const off = Math.floor((now / 90 + x * 0.5) % 6); if (off < 3) rect(x + off, gy + 1, 2, 1, wave); }
+    for (let i = 0; i < 18; i++) { const px = ((i * 53.7 + now * 0.012 * ((i % 3) + 1)) % lw) | 0, py = gy + 4 + ((i * 7.3) % 14 | 0); rect(px, py - (Math.floor(now / 300 + i) % 3), 1, 1, wave); }
     const lx0 = Math.round(wx(0)), lx1 = Math.round(wx(level.w));
     if (lx0 > 0) rect(0, 0, lx0, lh, 'rgba(11,7,22,0.55)');
     if (lx1 < lw) rect(lx1, 0, lw - lx1, lh, 'rgba(11,7,22,0.55)');
 
     // 3) 픽셀 버퍼 직접 래스터
-    img = lc.getImageData(0, 0, lw, lh); buf = img.data;
     mask.fill(0);
     const markGround = () => { for (const g of Wd.ground) { const x0 = clamp(Math.round(wx(g[0])), 0, lw), x1 = clamp(Math.round(wx(g[1])), 0, lw); for (let y = Math.max(0, gy); y < lh; y++) mask.fill(1, y * lw + x0, y * lw + x1); } };
     if (L) for (const sh of Wd.shapes) scan(sh, (y, x0, x1) => mask.fill(1, y * lw + x0, y * lw + x1 + 1));
@@ -474,6 +509,7 @@
       } else for (let y = ya; y <= yb; y += 4) blendPx(x, y, [126, 224, 176], 0.45);
     }
     lc.putImageData(img, 0, 0);
+    bufMode = false;
 
     // 4) 디테일 & 스프라이트
     for (const cp of Wd.polys) decorate(cp, pal);
@@ -490,9 +526,6 @@
     if (timeDirShow && mode === 'play') drawTimeFx(now);
     if (flash > 0) { lc.fillStyle = `rgba(255,240,200,${flash})`; lc.fillRect(0, 0, lw, lh); }
 
-    // 5) 정수 배율 확대 출력
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(lo, 0, 0, lw * K, lh * K);
   }
 
   function drawOrb(now, ls) {
@@ -504,8 +537,7 @@
       disc(p.x, p.y, r + 6, `rgba(255,236,170,${0.18 * (1 - cov * 0.8)})`);
       disc(p.x, p.y, r + 3, `rgba(255,236,170,${0.28 * (1 - cov * 0.8)})`);
       const rot = Math.floor(now / 500) % 2;
-      lc.fillStyle = '#ffe08a';
-      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + rot * Math.PI / 8; lc.fillRect(Math.round(p.x + Math.cos(a) * (r + 4)) - 1, Math.round(p.y + Math.sin(a) * (r + 4)) - 1, 2, 2); }
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + rot * Math.PI / 8; rect(Math.round(p.x + Math.cos(a) * (r + 4)) - 1, Math.round(p.y + Math.sin(a) * (r + 4)) - 1, 2, 2, '#ffe08a'); }
       disc(p.x, p.y, r, '#ff9a48'); disc(p.x - 1, p.y - 1, r - 2, '#ffd77a'); disc(p.x - 2, p.y - 2, Math.max(1, r - 5), '#fffbe8');
     } else {
       disc(p.x, p.y, r + 4, 'rgba(200,215,255,0.2)');
@@ -513,13 +545,11 @@
       rect(p.x - 3, p.y - 2, 2, 2, '#b7bfdc'); rect(p.x + 2, p.y + 2, 3, 2, '#b7bfdc'); rect(p.x - 1, p.y + 4, 2, 1, '#b7bfdc');
     }
     if (mode === 'play' && (orbDrag || barDrag || input.fwd || input.rew)) {
-      lc.fillStyle = '#ffffff';
       const rr = r + 8 + (Math.floor(now / 150) % 2);
-      for (let i = 0; i < 16; i += 2) { const a = i / 16 * 6.283 + now / 800; lc.fillRect(Math.round(p.x + Math.cos(a) * rr), Math.round(p.y + Math.sin(a) * rr), 1, 1); }
+      for (let i = 0; i < 16; i += 2) { const a = i / 16 * 6.283 + now / 800; rect(p.x + Math.cos(a) * rr, p.y + Math.sin(a) * rr, 1, 1, '#ffffff'); }
     }
     if (mode === 'play' && rt < 8 && used < 0.01 && Math.floor(now / 400) % 2 === 0) {
-      lc.fillStyle = '#ffffff';
-      for (let i = 0; i < 4; i++) { lc.fillRect(Math.round(p.x - r - 12 + i), Math.round(p.y - i), 1, i * 2 + 1); lc.fillRect(Math.round(p.x + r + 12 - i), Math.round(p.y - i), 1, i * 2 + 1); }
+      for (let i = 0; i < 4; i++) { rect(p.x - r - 12 + i, p.y - i, 1, i * 2 + 1, '#ffffff'); rect(p.x + r + 12 - i, p.y - i, 1, i * 2 + 1, '#ffffff'); }
     }
   }
   function drawClouds(pal) {
@@ -537,12 +567,12 @@
     for (let li = 0; li < 3; li++) {
       const hl = hills[li], par = 0.1 + li * 0.12;
       const col = hex(mixc(pal.bot, mixc([28, 20, 50], pal.top, 0.2), 0.3 + li * 0.22));
-      lc.fillStyle = col;
-      const base = hy - (26 - li * 8);
+      const base = hy - (26 - li * 8), cc = pcol(col);
       for (let x = 0; x < lw; x += 2) {
         const wxp = x + camPX * par;
         const h = Math.round(Math.sin(wxp * hl.f1 + hl.a) * 9 + Math.sin(wxp * hl.f2 + hl.b) * 4);
-        lc.fillRect(x, base - h - li * 2, 2, lh);
+        const y0 = Math.max(0, base - h - li * 2), xe = Math.min(lw, x + 2);
+        for (let y = y0; y < hy; y++) { const row = y * lw; u32[row + x] = cc.c32; if (x + 1 < xe) u32[row + x + 1] = cc.c32; }
       }
       if (li === 0) farTower(col, hy, par);
     }
@@ -551,16 +581,14 @@
     let x = Math.round(lw * 0.7 - camPX * par * 0.3);
     x = ((x % (lw + 80)) + lw + 80) % (lw + 80) - 40;
     const top = hy - 120;
-    lc.fillStyle = col;
-    lc.fillRect(x - 16, top + 24, 32, hy - top);
-    for (let i = 0; i < 18; i++) lc.fillRect(x - Math.floor(i * 0.9), top + 6 + i, Math.floor(i * 1.8) + 1, 1);
-    lc.fillRect(x - 20, top + 22, 40, 3);
+    rect(x - 16, top + 24, 32, hy - top - 24, col);
+    for (let i = 0; i < 18; i++) rect(x - Math.floor(i * 0.9), top + 6 + i, Math.floor(i * 1.8) + 1, 1, col);
+    rect(x - 20, top + 22, 40, 3, col);
     const fy = top + 38;
     disc(x, fy, 8, hex(mixc([255, 240, 210], [80, 70, 110], 0.55)));
     const hr = ((6 + t * 12) % 12) / 12 * 6.283, mn = ((t * 720) % 60) / 60 * 6.283;
-    lc.fillStyle = col;
-    for (let i = 1; i <= 4; i++) lc.fillRect(Math.round(x + Math.sin(hr) * i), Math.round(fy - Math.cos(hr) * i), 1, 1);
-    for (let i = 1; i <= 6; i++) lc.fillRect(Math.round(x + Math.sin(mn) * i), Math.round(fy - Math.cos(mn) * i), 1, 1);
+    for (let i = 1; i <= 4; i++) rect(x + Math.sin(hr) * i, fy - Math.cos(hr) * i, 1, 1, col);
+    for (let i = 1; i <= 6; i++) rect(x + Math.sin(mn) * i, fy - Math.cos(mn) * i, 1, 1, col);
   }
   function decorate(cp, pal) {
     const st = cp.style, src = cp.src || {};
@@ -658,8 +686,9 @@
       const sx = wx(h.x) * s - h.w / 2, sy = wy(h.y) * s - 14;
       const a = h.tag ? 1 : clamp(1.4 - Math.abs(player.x - h.x) / 600, 0, 1);
       const cxs = clamp(sx, 6, W - h.w - 6), cys = h.tag ? sy : clamp(sy, 58, H - 150);
-      h.el.style.transform = `translate(${Math.round(cxs)}px,${Math.round(cys)}px)`;
-      h.el.style.opacity = a < 0.05 ? 0 : (a > 0.66 ? 1 : a > 0.33 ? 0.66 : 0.33);
+      const tf = `translate(${Math.round(cxs)}px,${Math.round(cys)}px)`, op = a < 0.05 ? '0' : (a > 0.66 ? '1' : a > 0.33 ? '0.66' : '0.33');
+      if (tf !== h.tf) { h.tf = tf; h.el.style.transform = tf; }
+      if (op !== h.op) { h.op = op; h.el.style.opacity = op; }
     }
   }
 
@@ -699,7 +728,8 @@
   function updateHUD() {
     const tm = SC.tMax(level);
     const phase = (!level.moon || t < 1) ? 'sun' : t < C.DUSK1 ? 'dusk' : 'moon';
-    $('tbThumb').style.left = `calc(6px + (100% - 12px) * ${t / tm})`;
+    const tl = `calc(6px + (100% - 12px) * ${(t / tm).toFixed(4)})`;
+    if (tl !== updateHUD._l) { updateHUD._l = tl; $('tbThumb').style.left = tl; }
     const key = phase + Math.floor(t * 72) + '|' + Math.round(used * 72);
     if (key !== hudKey) {
       hudKey = key;
@@ -710,7 +740,8 @@
       ut.textContent = `사용 ${usedText(used)} / ★${ph}시간`; ut.classList.toggle('over', used * 12 > ph + 1e-6);
       Snd.mood(phase === 'sun' ? (t < 0.35 ? 'day' : t < 0.7 ? 'noon' : 'eve') : 'night');
     }
-    $('tbHint').style.opacity = (rt < 10 && used < 0.01) ? 1 : 0;
+    const ho = (rt < 10 && used < 0.01) ? '1' : '0';
+    if (ho !== updateHUD._h) { updateHUD._h = ho; $('tbHint').style.opacity = ho; }
   }
 
   /* ═════════════ 화면 전환 ═════════════ */
@@ -818,8 +849,8 @@
     if (mode === 'title') { titleDemo(now); return; }
     if (mode === 'play') {
       acc += dt; let n = 0;
-      while (acc >= C.DT && n < 12) { step(C.DT); acc -= C.DT; n++; }
-      if (n === 12) acc = 0;
+      while (acc >= C.DT && n < 8) { step(C.DT); acc -= C.DT; n++; }
+      if (n === 8) acc = 0;
       flash = Math.max(0, flash - dt * 1.5);
       if (!timeDir) timeDirShow = timeDirShow > 0 ? Math.max(0, timeDirShow - dt) : Math.min(0, timeDirShow + dt);
       updateCamera(dt); updateHUD();
