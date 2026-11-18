@@ -1,0 +1,13 @@
+{
+  "name": "sundial-climber",
+  "version": "1.0.0",
+  "private": true,
+  "description": "해시계 등반가 — 태양을 끌어 시간을 흘리는 그림자 플랫포머",
+  "scripts": {
+    "build": "node tools/build.js",
+    "solve": "node tools/solve.js"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "4.1.1"
+  }
+}

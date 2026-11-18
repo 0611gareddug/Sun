@@ -16,7 +16,7 @@ function makeWorldFn(level) {
     let k = Math.round(t * 1e5);
     if (dyn) k = k * 100000 + Math.round((((rt % period) + period) % period) / DT) ;
     let w = cache.get(k);
-    if (!w) { w = world(level, t, rt); if (cache.size > 300000) cache.clear(); cache.set(k, w); }
+    if (!w) { w = world(level, t, rt); if (cache.size > 40000) cache.clear(); cache.set(k, w); }
     return w;
   };
 }
@@ -28,6 +28,8 @@ function solve(level, opts = {}) {
   const gr0 = goalRect(level);
   const kr = keyRect(level);
   const target = opts.target === 'shard' ? shardRect(level) : null;
+  const sr = opts.target === 'both' ? shardRect(level) : null;
+  const need = (kr ? 1 : 0) | (sr ? 2 : 0);
   const TM = tMax(level);
   const maxStates = opts.maxStates || 1500000;
 
@@ -45,8 +47,9 @@ function solve(level, opts = {}) {
       const w = W(t, rt);
       stepPlayer(p, a, w, level, DT, null);
       if (p.dead) return { dead: true };
-      if (kr && !k && overlaps(p, kr)) k = 1;
-      if (target ? overlaps(p, target) : ((k || !kr) && overlaps(p, gr0))) return { win: true, t };
+      if (kr && !(k & 1) && overlaps(p, kr)) k |= 1;
+      if (sr && !(k & 2) && overlaps(p, sr)) k |= 2;
+      if (target ? overlaps(p, target) : ((k & need) === need && overlaps(p, gr0))) return { win: true, t };
     }
     if (!p.gr) return { dead: true };
     return { x: p.x, y: p.y, t, rt, k };
@@ -125,8 +128,9 @@ function solve(level, opts = {}) {
           const w = W(t, rt);
           stepPlayer(p, { dir: 0 }, w, level, DT, null);
           if (p.dead) { dead = true; break; }
-          if (kr && !kk && overlaps(p, kr)) kk = 1;
-          if (target ? overlaps(p, target) : ((kk || !kr) && overlaps(p, gr0))) { win = true; break; }
+          if (kr && !(kk & 1) && overlaps(p, kr)) kk |= 1;
+          if (sr && !(kk & 2) && overlaps(p, sr)) kk |= 2;
+          if (target ? overlaps(p, target) : ((kk & need) === need && overlaps(p, gr0))) { win = true; break; }
           if (!adv && p.gr) break;
         }
         if (win) return { ok: true, t, count, path: trace(st).concat('adv') };
@@ -152,7 +156,7 @@ for (const lv of LEVELS) {
   if (only && lv.id !== only) continue;
   const t1 = Date.now();
   const r = solve(lv);
-  if (process.argv[3] === 'shard' || process.argv.includes('--shard')) { const r2 = solve(lv, { target: 'shard' }); console.log('   shard:', r2.ok ? 'OK t=' + r2.t.toFixed(3) : 'FAIL ' + r2.reason); }
+  if (process.argv[3] === 'shard' || process.argv.includes('--shard')) { const r2 = solve(lv, { target: 'both' }); console.log('   shard+goal:', r2.ok ? 'OK t=' + r2.t.toFixed(3) : 'FAIL ' + r2.reason); }
   console.log(lv.id.padEnd(5), lv.name.padEnd(14), r.ok ? 'OK  minT=' + r.t.toFixed(3) + ' (par ' + lv.par + ')' : 'FAIL ' + r.reason, 'states=' + r.count, (Date.now() - t1) + 'ms');
   if (only && r.path) console.log(compress(r.path).join('\n'));
 }

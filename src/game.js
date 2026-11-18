@@ -349,7 +349,7 @@
     lookX = lerp(lookX, (player.vx || 0) * 0.35, 1 - Math.pow(0.05, dt));
     const minX = Math.min(0, (level.w - viewW) / 2), maxX = Math.max(level.w - viewW, (level.w - viewW) / 2);
     const cx = clamp(tx, minX, maxX);
-    const topLimit = -40, botLimit = C.H + 10 - viewH;
+    const topLimit = -40, botLimit = C.G - viewH * (isTouch ? 0.74 : 0.76);
     const ty = clamp(player.y - viewH * 0.55, Math.min(topLimit, botLimit), botLimit);
     if (!camInit) { camX = cx; camY = ty; camInit = true; }
     camX = lerp(camX, cx, 1 - Math.pow(0.004, dt));
@@ -620,6 +620,24 @@
         const p = cp.pts; ctx.strokeStyle = rgb(mixc(col, [255, 220, 160], 0.18)); ctx.lineWidth = 2;
         ctx.beginPath(); for (let k = 1; k < 6; k++) { const y = lerp(p[1][1], p[0][1], k / 6); ctx.moveTo(p[3][0] - 6, y); ctx.lineTo(p[3][0] - 22, y); } ctx.stroke();
       }
+      if (st === 'leaf') {
+        const p = cp.pts;
+        const ax = p[0][0], ay = p[0][1], bx = p[1][0], by = p[1][1], cx2 = p[2][0], cy2 = p[2][1], dx2 = p[3][0], dy2 = p[3][1];
+        ctx.fillStyle = rgb(col);
+        ctx.beginPath();
+        for (let k = 0; k <= 7; k++) {
+          const u = k / 7;
+          const tx = lerp(ax, bx, u), ty = lerp(ay, by, u), btx = lerp(dx2, cx2, u), bty = lerp(dy2, cy2, u);
+          const r = 13 + 7 * Math.sin(u * 9.1 + 1.3);
+          ctx.moveTo(tx + r, ty); ctx.arc(tx, ty, r, 0, 6.283);
+          ctx.moveTo(btx + r * 0.8, bty); ctx.arc(btx, bty, r * 0.8, 0, 6.283);
+        }
+        ctx.fill();
+        ctx.fillStyle = rgb(mixc(col, [140, 200, 150], 0.12));
+        ctx.beginPath();
+        for (let k = 1; k < 7; k += 2) { const u = k / 7; const tx = lerp(ax, bx, u), ty = lerp(ay, by, u); ctx.moveTo(tx + 6, ty - 3); ctx.arc(tx, ty - 3, 6, 0, 6.283); }
+        ctx.fill();
+      }
       if (st === 'blade') {
         const p = cp.pts; ctx.strokeStyle = rgb(mixc(col, [255, 220, 160], 0.12)); ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -888,7 +906,7 @@
     if (!level || level !== LEVELS[0] || mode !== 'title') { level = LEVELS[0]; level._static = null; player = SC.newPlayer(level.start[0], level.start[1]); genHills(0); }
     t = 0.08 + ((now / 1000) * 0.02) % 0.86; rt = now / 1000;
     Wd = SC.world(level, t, rt);
-    camX = (level.w - viewW) / 2; camY = C.H + 10 - viewH;
+    camX = (level.w - viewW) / 2; camY = C.G - viewH * 0.8;
     const save0 = player.dead; player.dead = 'hide';
     draw(now); player.dead = save0;
   }

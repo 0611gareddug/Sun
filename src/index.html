@@ -34,7 +34,7 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:none;background:n
 .screen.dim{background:radial-gradient(ellipse at center,rgba(18,12,36,.55),rgba(10,7,22,.88))}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:26px 28px;
   box-shadow:0 20px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-  max-width:min(520px,100%);width:100%;text-align:center;max-height:100%;overflow:auto}
+  max-width:min(520px,100%);width:100%;text-align:center;max-height:100%;overflow:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;margin:10px 0 0;padding:12px 18px;
   border-radius:14px;font-size:18px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.03));
   border:1px solid var(--line);transition:transform .12s,background .2s,border-color .2s}
@@ -105,7 +105,7 @@ h2{font-family:'Gowun Batang',serif;margin:0 0 6px;font-size:28px;letter-spacing
 .tb-label b{color:var(--text);font-weight:400}
 .tb-track{position:relative;height:40px;border-radius:20px;background:rgba(16,11,32,.62);border:1px solid var(--line);
   overflow:hidden;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:ew-resize}
-.tb-grad{position:absolute;inset:0;opacity:.55}
+.tb-grad{position:absolute;inset:0;opacity:.4}
 .tb-past{position:absolute;left:0;top:0;bottom:0;background:rgba(10,6,22,.72)}
 .tb-mark{position:absolute;top:6px;bottom:6px;width:2px;background:rgba(255,255,255,.25);border-radius:2px}
 .tb-thumb{position:absolute;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;
@@ -159,6 +159,15 @@ body.touch .tb-thumb{width:42px;height:42px;margin:-21px 0 0 -21px}
   border:1px solid var(--line);padding:8px 16px;border-radius:12px;font-size:14px;transition:opacity .4s;opacity:0;pointer-events:none}
 .toast.show{opacity:1}
 @media (max-height:500px){
+  .logo{font-size:clamp(30px,10vh,48px)}
+  .logo-en{font-size:10px}
+  #title .btns{max-width:520px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #title .btns .btn{margin:0}
+  #title .btns .row{display:contents}
+  #title .btns .primary{grid-column:1/-1}
+  .star{width:36px;height:36px}.stars{margin:6px 0 2px}
+  .crit{flex-direction:row;flex-wrap:wrap;justify-content:center;gap:4px 14px;font-size:13px}
+  .sub{margin-bottom:4px;font-size:14px}.fail-ico{font-size:32px}
   .panel{padding:16px 18px}
   h2{font-size:22px}
   .btn{min-height:46px;font-size:16px;margin-top:8px}
